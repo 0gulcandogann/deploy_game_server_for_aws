@@ -123,43 +123,84 @@ Create a file in your repository at this exact path: `.github/workflows/deploy_m
 Copy and paste the following content into that file:
 
 ```yaml
-# .github/workflows/deploy_minecraft.yml
+name: 🚀 Auto-Deploy Minecraft Server
 
-name: Deploy Minecraft to AWS GameLift
-
-# This workflow triggers on a push to the 'main' branch
 on:
   push:
     branches:
       - main
 
 jobs:
-  trigger-aap-deploy:
+  deploy-to-awx:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Launch AAP Job Template
-        # We use Red Hat's official Action to launch an AWX/AAP job
-        uses: redhat-actions/awx-job-launch@v2
-        with:
-          # Get the AAP host address from GitHub Secrets
-          awx_host: ${{ secrets.AWX_HOST }}
-          
-          # Get the AAP API token from GitHub Secrets
-          awx_token: ${{ secrets.AWX_TOKEN }}
-          
-          # Get the Job Template ID from GitHub Secrets
-          job_template_id: ${{ secrets.AWX_JOB_TEMPLATE_ID }}
-          
-          # Wait for the job to finish before completing
-          wait_for_job_completion: true
-          
-          # Verbosity level for logging
-          job_verbosity: 1
-          
-          # --- OPTIONAL ---
-          # Uncomment the line below ONLY if your AAP server 
-          # uses a self-signed SSL certificate.
-          # validate_certs: false
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create or Update AWX Project
+        run: |
+          echo "🔧 Checking or creating AWX Project..."
+          curl -s -X POST "${{ secrets.AWX_URL }}/api/v2/projects/" \
+          -H "Content-Type: application/json" \
+          -u "${{ secrets.AWX_USER }}:${{ secrets.AWX_PASS }}" \
+          -d '{
+            "name": "Minecraft_Deploy_Project",
+            "scm_type": "git",
+            "scm_url": "https://github.com/0gulcandogann/deploy_game_server_for_aws.git",
+            "scm_branch": "main",
+            "scm_update_on_launch": true
+          }' || echo "Project already exists or updated."
+
+      - name: Create or Update AWX Inventory
+        run: |
+          echo "📦 Checking or creating AWX Inventory..."
+          curl -s -X POST "${{ secrets.AWX_URL }}/api/v2/inventories/" \
+          -H "Content-Type: application/json" \
+          -u "${{ secrets.AWX_USER }}:${{ secrets.AWX_PASS }}" \
+          -d '{
+            "name": "Minecraft_Inventory",
+            "organization": 1
+          }' || echo "Inventory already exists or updated."
+
+      - name: Create AWX Credential (AWS)
+        run: |
+          echo "🔑 Creating AWX AWS credential..."
+          curl -s -X POST "${{ secrets.AWX_URL }}/api/v2/credentials/" \
+          -H "Content-Type: application/json" \
+          -u "${{ secrets.AWX_USER }}:${{ secrets.AWX_PASS }}" \
+          -d '{
+            "name": "AWS_Credentials",
+            "credential_type": 8,
+            "organization": 1,
+            "inputs": {
+              "username": "${{ secrets.AWS_ACCESS_KEY_ID }}",
+              "password": "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+            }
+          }' || echo "Credential already exists or updated."
+
+      - name: Create or Update AWX Job Template
+        run: |
+          echo "🧱 Creating or updating AWX Job Template..."
+          curl -s -X POST "${{ secrets.AWX_URL }}/api/v2/job_templates/" \
+          -H "Content-Type: application/json" \
+          -u "${{ secrets.AWX_USER }}:${{ secrets.AWX_PASS }}" \
+          -d '{
+            "name": "Deploy_Minecraft_Server",
+            "job_type": "run",
+            "inventory": 1,
+            "project": 1,
+            "playbook": "deploy_minecraft.yml",
+            "credential": 1,
+            "become_enabled": true
+          }' || echo "Template already exists or updated."
+
+      - name: Launch AWX Job Template
+        run: |
+          echo "🚀 Launching AWX Job Template..."
+          curl -s -X POST "${{ secrets.AWX_URL }}/api/v2/job_templates/1/launch/" \
+          -u "${{ secrets.AWX_USER }}:${{ secrets.AWX_PASS }}"
+
 ```
 ### Step 5: Push to Deploy!
 
